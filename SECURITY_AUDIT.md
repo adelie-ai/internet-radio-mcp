@@ -17,11 +17,6 @@ Manual URL encoding function encodes spaces as `+` (form encoding, not standard 
 
 ---
 
-## Resolved (2026-03-31)
-
-- URL scheme validation — only HTTP(S) URLs allowed for mpv playback
-- PID-based stop — `stop_playback_by_pid()` uses `kill` by tracked PID instead of `pkill mpv`
-
 ## Positive Findings
 
 - No `unsafe` code
