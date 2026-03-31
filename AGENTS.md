@@ -1,67 +1,16 @@
-# AGENTS
+# Agent Instructions
 
-Project guidance for coding agents and contributors working in this repository.
+## Dependency Security Policy
 
-This repo currently uses this file as the canonical contributor/agent policy. If dedicated files like `copilot-instructions.md`, `CLAUDE.md`, or `.cursorrules` are added later, keep their guidance consistent with this document.
+After adding any new packages, **scan for CVEs before building**.
 
-## Scope and priorities
+Build scripts (e.g. `build.rs` in Rust, install scripts in npm) execute at build time and are a potential attack vector. Scanning the updated lockfile *before* running a build catches malicious or vulnerable transitive dependencies before any build-time code can execute.
 
-- Keep changes focused and minimal.
-- Fix root causes rather than layering temporary workarounds.
-- Avoid unrelated refactors while implementing a requested change.
+### Workflow
 
-## Cross-agent operating rules (Copilot/Claude/Cursor aligned)
+1. Add the dependency (e.g. `cargo add <crate>`) — this updates the lockfile but does not build.
+2. Scan immediately using `cve-mcp scan_packages` — parse the updated lockfile and pass all (name, version, ecosystem) tuples to the tool.
+3. Review findings. Investigate any Critical or High severity issues before proceeding.
+4. Only build once the scan is clean (or findings are understood and accepted).
 
-- Be concise and direct in code and communication.
-- Prefer the smallest change that fully solves the requested problem.
-- Complete work end-to-end when feasible (implement + validate), not just analysis.
-- If requirements are ambiguous, choose the simplest interpretation that matches existing behavior; ask only when ambiguity changes outcomes materially.
-- Do not add speculative features, broad rewrites, or unrelated cleanup.
-- Do not commit, create branches, or alter repository history unless explicitly requested.
-- Keep security/safety in mind: avoid introducing secret leakage paths or unsafe defaults.
-
-## Rust code style
-
-- Follow existing style and naming patterns in the repository.
-- Keep functions small and explicit; prefer straightforward control flow.
-- Avoid one-letter variable names except for tight loop indices.
-- Do not add new dependencies unless they materially simplify or harden the implementation.
-- Preserve public API behavior unless the task explicitly requires a change.
-
-## Commenting and documentation rules
-
-Comments should be useful, not verbose.
-
-- Prefer concise doc comments on public types/functions and non-obvious behavior.
-- Explain why or constraints, not line-by-line what the code already says.
-- Remove stale, duplicated, or obvious comments during touched-file edits.
-- Do not add decorative comments or banner noise.
-- Keep markdown docs in `docs/` for technical detail; keep root `README.md` as product/operator overview.
-
-## Testing policy (TDD-esque)
-
-Use a test-first mindset for behavior changes:
-
-1. Add or adjust a test that captures expected behavior (or reproduces bug).
-2. Implement the code change.
-3. Re-run targeted tests first, then broader suites.
-
-Practical expectations:
-
-- For new features or bug fixes, include test coverage where there is an established place to do so.
-- Prefer narrowly scoped tests before running full test suite.
-- Do not rewrite large test areas unless required by the change.
-
-## Validation checklist
-
-Before finishing:
-
-- Run relevant tests (`cargo test <filter>`), then `cargo test` when practical.
-- Run clippy with strict settings (`cargo clippy --all-targets --all-features -- -D warnings`) and fix all findings.
-- Ensure the repository remains fully clean under `#![deny(warnings)]` and clippy deny settings, including pre-existing warnings/lints.
-- Confirm docs updated when behavior or interfaces changed.
-
-## MCP-specific notes
-
-- Preserve initialization gating semantics for MCP methods.
-- Keep tool results structurally stable unless intentional contract changes are requested.
+This applies regardless of ecosystem (Cargo, npm, PyPI, etc.).
