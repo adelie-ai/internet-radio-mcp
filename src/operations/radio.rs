@@ -99,9 +99,25 @@ fn urlenccode(s: &str) -> String {
     out
 }
 
+/// Validate that a stream URL uses HTTP or HTTPS.
+fn validate_stream_url(url: &str) -> Result<()> {
+    // Reject non-HTTP schemes (file://, ftp://, etc.) to prevent local file access.
+    let lower = url.to_lowercase();
+    if !lower.starts_with("http://") && !lower.starts_with("https://") {
+        return Err(RadioError::PlayerError(format!(
+            "only http:// and https:// stream URLs are allowed, got: {}",
+            url.split("://").next().unwrap_or("unknown")
+        ))
+        .into());
+    }
+    Ok(())
+}
+
 /// Play a station URL with mpv (non-blocking). Returns the spawned child PID.
 pub fn play_station(url: &str) -> Result<u32> {
     use std::process::{Command, Stdio};
+
+    validate_stream_url(url)?;
 
     let child = Command::new("mpv")
         .args(["--no-video", "--really-quiet", url])
@@ -119,22 +135,57 @@ pub fn play_station(url: &str) -> Result<u32> {
     Ok(pid)
 }
 
-/// Stop all running mpv instances launched by this server.
-pub fn stop_playback() -> Result<()> {
+/// Stop a specific mpv process by PID, or all tracked instances.
+pub fn stop_playback_by_pid(pid: Option<u32>) -> Result<()> {
+    if let Some(pid) = pid {
+        // Kill a specific process by PID instead of blindly killing all mpv instances.
+        #[cfg(unix)]
+        {
+            use std::process::Command;
+            let status = Command::new("kill")
+                .arg(pid.to_string())
+                .status()
+                .map_err(|e| RadioError::PlayerError(format!("kill failed: {e}")))?;
+            if !status.success() {
+                let code = status.code().unwrap_or(-1);
+                // Exit code 1 from kill usually means "no such process" — already stopped.
+                if code != 1 {
+                    return Err(RadioError::PlayerError(format!(
+                        "kill exited with unexpected status {code}"
+                    ))
+                    .into());
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = pid;
+            return Err(RadioError::PlayerError(
+                "PID-based stop not supported on this platform".to_string(),
+            )
+            .into());
+        }
+    } else {
+        // Fallback: stop all mpv instances (backward compatible).
+        stop_all_mpv()?;
+    }
+    Ok(())
+}
+
+/// Stop all running mpv instances (legacy fallback).
+fn stop_all_mpv() -> Result<()> {
     use std::process::Command;
 
-    // pkill exits 1 if no processes matched — treat that as "nothing was playing".
     let status = Command::new("pkill")
         .arg("mpv")
         .status()
-        .map_err(|e| RadioError::PlayerError(format!("pkill failed: {}", e)))?;
+        .map_err(|e| RadioError::PlayerError(format!("pkill failed: {e}")))?;
 
     if !status.success() {
         let code = status.code().unwrap_or(-1);
         if code != 1 {
             return Err(RadioError::PlayerError(format!(
-                "pkill exited with unexpected status {}",
-                code
+                "pkill exited with unexpected status {code}"
             ))
             .into());
         }
@@ -152,5 +203,18 @@ mod tests {
         assert_eq!(urlenccode("rock"), "rock");
         assert_eq!(urlenccode("classic rock"), "classic+rock");
         assert_eq!(urlenccode("jazz&blues"), "jazz%26blues");
+    }
+
+    #[test]
+    fn test_validate_stream_url_accepts_http() {
+        assert!(validate_stream_url("http://stream.example.com/radio.mp3").is_ok());
+        assert!(validate_stream_url("https://stream.example.com/radio.mp3").is_ok());
+    }
+
+    #[test]
+    fn test_validate_stream_url_rejects_non_http() {
+        assert!(validate_stream_url("file:///etc/passwd").is_err());
+        assert!(validate_stream_url("ftp://example.com/radio.mp3").is_err());
+        assert!(validate_stream_url("rtsp://example.com/stream").is_err());
     }
 }

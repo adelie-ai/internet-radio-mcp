@@ -150,8 +150,9 @@ impl ToolRegistry {
             .into());
         };
 
-        // Stop any current playback first.
-        let _ = radio::stop_playback();
+        // Stop any current playback first (by tracked PID when available).
+        let current_pid = self.now_playing.read().await.pid;
+        let _ = radio::stop_playback_by_pid(current_pid);
 
         let pid = radio::play_station(&stream_url)?;
 
@@ -178,7 +179,8 @@ impl ToolRegistry {
     }
 
     async fn exec_radio_stop(&self) -> Result<Value> {
-        radio::stop_playback()?;
+        let current_pid = self.now_playing.read().await.pid;
+        radio::stop_playback_by_pid(current_pid)?;
 
         let mut np = self.now_playing.write().await;
         np.pid = None;
