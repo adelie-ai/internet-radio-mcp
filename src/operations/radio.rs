@@ -14,13 +14,7 @@ pub async fn search_by_name(
     name: &str,
     limit: u32,
 ) -> Result<Vec<Station>> {
-    let url = format!(
-        "{}/stations/search?name={}&limit={}&hidebroken=true&order=votes",
-        RADIO_BROWSER_BASE,
-        urlenccode(name),
-        limit
-    );
-    fetch_stations(client, &url, name).await
+    search_stations(client, "name", name, limit).await
 }
 
 /// Search for stations by tag/genre.
@@ -29,13 +23,32 @@ pub async fn search_by_tag(
     tag: &str,
     limit: u32,
 ) -> Result<Vec<Station>> {
-    let url = format!(
-        "{}/stations/search?tag={}&limit={}&hidebroken=true&order=votes",
-        RADIO_BROWSER_BASE,
-        urlenccode(tag),
-        limit
-    );
-    fetch_stations(client, &url, tag).await
+    search_stations(client, "tag", tag, limit).await
+}
+
+async fn search_stations(
+    client: &reqwest::Client,
+    field: &str,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<Station>> {
+    let url = format!("{}/stations/search", RADIO_BROWSER_BASE);
+    let limit_str = limit.to_string();
+    let params = [
+        (field, query),
+        ("limit", &limit_str),
+        ("hidebroken", "true"),
+        ("order", "votes"),
+    ];
+    let resp = client
+        .get(&url)
+        .query(&params)
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .await
+        .map_err(|e| RadioError::ApiError(e.to_string()))?;
+
+    parse_stations_response(resp, query).await
 }
 
 /// Look up a single station by its UUID.
@@ -44,22 +57,21 @@ pub async fn station_by_uuid(
     uuid: &str,
 ) -> Result<Option<Station>> {
     let url = format!("{}/stations/byuuid/{}", RADIO_BROWSER_BASE, uuid);
-    let stations = fetch_stations(client, &url, uuid).await?;
-    Ok(stations.into_iter().next())
-}
-
-async fn fetch_stations(
-    client: &reqwest::Client,
-    url: &str,
-    query: &str,
-) -> Result<Vec<Station>> {
     let resp = client
-        .get(url)
+        .get(&url)
         .header("User-Agent", USER_AGENT)
         .send()
         .await
         .map_err(|e| RadioError::ApiError(e.to_string()))?;
 
+    let stations = parse_stations_response(resp, uuid).await?;
+    Ok(stations.into_iter().next())
+}
+
+async fn parse_stations_response(
+    resp: reqwest::Response,
+    query: &str,
+) -> Result<Vec<Station>> {
     if !resp.status().is_success() {
         return Err(RadioError::ApiError(format!(
             "HTTP {} from Radio Browser",
@@ -78,25 +90,6 @@ async fn fetch_stations(
     }
 
     Ok(stations)
-}
-
-/// Minimal percent-encoding for URL query parameters (encodes spaces and special chars).
-fn urlenccode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for byte in s.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char);
-            }
-            b' ' => out.push('+'),
-            other => {
-                out.push('%');
-                out.push(char::from_digit((other >> 4) as u32, 16).unwrap_or('0'));
-                out.push(char::from_digit((other & 0xf) as u32, 16).unwrap_or('0'));
-            }
-        }
-    }
-    out
 }
 
 /// Validate that a stream URL uses HTTP or HTTPS.
@@ -197,13 +190,6 @@ fn stop_all_mpv() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_urlenccode_passthrough() {
-        assert_eq!(urlenccode("rock"), "rock");
-        assert_eq!(urlenccode("classic rock"), "classic+rock");
-        assert_eq!(urlenccode("jazz&blues"), "jazz%26blues");
-    }
 
     #[test]
     fn test_validate_stream_url_accepts_http() {
