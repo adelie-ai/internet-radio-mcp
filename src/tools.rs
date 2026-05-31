@@ -49,7 +49,12 @@ impl ToolRegistry {
         let args = match arguments {
             Value::Object(m) => m,
             Value::Null => &empty_map,
-            _ => return Err(McpError::InvalidToolParameters("Arguments must be an object".to_string()).into()),
+            _ => {
+                return Err(McpError::InvalidToolParameters(
+                    "Arguments must be an object".to_string(),
+                )
+                .into());
+            }
         };
 
         match name {
@@ -75,19 +80,12 @@ impl ToolRegistry {
 
     // ── tool implementations ──────────────────────────────────────────────────
 
-    async fn exec_radio_search(
-        &self,
-        args: &serde_json::Map<String, Value>,
-    ) -> Result<Value> {
-        let query = args
-            .get("query")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| McpError::InvalidToolParameters("Missing required parameter: query".to_string()))?;
+    async fn exec_radio_search(&self, args: &serde_json::Map<String, Value>) -> Result<Value> {
+        let query = args.get("query").and_then(|v| v.as_str()).ok_or_else(|| {
+            McpError::InvalidToolParameters("Missing required parameter: query".to_string())
+        })?;
 
-        let by = args
-            .get("by")
-            .and_then(|v| v.as_str())
-            .unwrap_or("name");
+        let by = args.get("by").and_then(|v| v.as_str()).unwrap_or("name");
 
         let limit = args
             .get("limit")
@@ -124,10 +122,7 @@ impl ToolRegistry {
         }))
     }
 
-    async fn exec_radio_play(
-        &self,
-        args: &serde_json::Map<String, Value>,
-    ) -> Result<Value> {
+    async fn exec_radio_play(&self, args: &serde_json::Map<String, Value>) -> Result<Value> {
         // Accept either a direct URL or a uuid (looked up first).
         let url_opt = args.get("url").and_then(|v| v.as_str());
         let uuid_opt = args.get("uuid").and_then(|v| v.as_str());
@@ -139,7 +134,9 @@ impl ToolRegistry {
         } else if let Some(uuid) = uuid_opt {
             let station = radio::station_by_uuid(&self.http_client, uuid)
                 .await?
-                .ok_or_else(|| McpError::InvalidToolParameters(format!("Station UUID not found: {}", uuid)))?;
+                .ok_or_else(|| {
+                    McpError::InvalidToolParameters(format!("Station UUID not found: {}", uuid))
+                })?;
             let url = station.url_resolved.clone();
             let name = station.name.clone();
             (url, name)
