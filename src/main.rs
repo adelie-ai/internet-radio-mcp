@@ -1,10 +1,10 @@
 #![deny(warnings)]
 
 use axum::{
-    extract::{ws::WebSocketUpgrade, State},
+    Router,
+    extract::{State, ws::WebSocketUpgrade},
     response::Response,
     routing::get,
-    Router,
 };
 use clap::{Parser, ValueEnum};
 use internet_radio_mcp::error::Result;
@@ -107,8 +107,7 @@ async fn run_stdio_server(server: McpServer) -> Result<()> {
             }
         };
 
-        let (response, notifications) =
-            handle_jsonrpc_message(Arc::clone(&server), message).await;
+        let (response, notifications) = handle_jsonrpc_message(Arc::clone(&server), message).await;
 
         if let Some(resp) = response {
             let resp_str = match serde_json::to_string(&resp) {
@@ -152,17 +151,11 @@ async fn run_websocket_server(server: McpServer, host: &str, port: u16) -> Resul
     Ok(())
 }
 
-async fn websocket_handler(
-    ws: WebSocketUpgrade,
-    State(server): State<Arc<McpServer>>,
-) -> Response {
+async fn websocket_handler(ws: WebSocketUpgrade, State(server): State<Arc<McpServer>>) -> Response {
     ws.on_upgrade(move |socket| handle_websocket_connection(socket, server))
 }
 
-async fn handle_websocket_connection(
-    socket: axum::extract::ws::WebSocket,
-    server: Arc<McpServer>,
-) {
+async fn handle_websocket_connection(socket: axum::extract::ws::WebSocket, server: Arc<McpServer>) {
     use axum::extract::ws::Message;
     use futures_util::{SinkExt, StreamExt};
 

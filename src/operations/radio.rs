@@ -52,10 +52,7 @@ async fn search_stations(
 }
 
 /// Look up a single station by its UUID.
-pub async fn station_by_uuid(
-    client: &reqwest::Client,
-    uuid: &str,
-) -> Result<Option<Station>> {
+pub async fn station_by_uuid(client: &reqwest::Client, uuid: &str) -> Result<Option<Station>> {
     let url = format!("{}/stations/byuuid/{}", RADIO_BROWSER_BASE, uuid);
     let resp = client
         .get(&url)
@@ -68,16 +65,11 @@ pub async fn station_by_uuid(
     Ok(stations.into_iter().next())
 }
 
-async fn parse_stations_response(
-    resp: reqwest::Response,
-    query: &str,
-) -> Result<Vec<Station>> {
+async fn parse_stations_response(resp: reqwest::Response, query: &str) -> Result<Vec<Station>> {
     if !resp.status().is_success() {
-        return Err(RadioError::ApiError(format!(
-            "HTTP {} from Radio Browser",
-            resp.status()
-        ))
-        .into());
+        return Err(
+            RadioError::ApiError(format!("HTTP {} from Radio Browser", resp.status())).into(),
+        );
     }
 
     let stations: Vec<Station> = resp
