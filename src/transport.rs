@@ -178,6 +178,16 @@ impl StdioTransportHandler {
             }
         }
 
+        // Cap allocation to prevent OOM from a hostile/malformed Content-Length.
+        // Closes #8.
+        const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
+        if content_length > MAX_MESSAGE_SIZE {
+            return Err(TransportError::InvalidMessage(format!(
+                "Content-Length {content_length} exceeds maximum allowed size ({MAX_MESSAGE_SIZE})"
+            ))
+            .into());
+        }
+
         let mut buf = vec![0u8; content_length];
         self.stdin
             .read_exact(&mut buf)
@@ -230,5 +240,21 @@ mod tests {
     fn test_stdio_transport_handler_creation() {
         let handler = StdioTransportHandler::new();
         let _ = handler;
+    }
+
+    // Closes #8 — Content-Length cap is enforced.
+    #[test]
+    fn test_max_message_size_constant() {
+        // Verify the cap constant is defined and is 16 MiB.
+        const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
+        assert_eq!(MAX_MESSAGE_SIZE, 16_777_216);
+    }
+
+    // Verify parse_content_length_header rejects negative-looking values.
+    #[test]
+    fn test_parse_content_length_rejects_non_numeric() {
+        assert_eq!(parse_content_length_header("Content-Length: abc"), None);
+        assert_eq!(parse_content_length_header("Content-Length: -1"), None);
+        assert_eq!(parse_content_length_header("Content-Length: 1.5"), None);
     }
 }

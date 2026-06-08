@@ -2,8 +2,9 @@
 
 // Radio Browser API search and mpv playback operations.
 
-use crate::error::{RadioError, Result};
+use crate::error::{McpError, RadioError, Result};
 use crate::models::Station;
+use std::process::Child;
 
 const RADIO_BROWSER_BASE: &str = "https://de1.api.radio-browser.info/json";
 const USER_AGENT: &str = "AdelieInternetRadioMcp/0.1 (contact: local)";
@@ -51,8 +52,32 @@ async fn search_stations(
     parse_stations_response(resp, query).await
 }
 
+/// Validate that a UUID matches the expected `[0-9a-fA-F-]{36}` format.
+///
+/// This prevents malformed input from altering the Radio Browser request URL.
+/// Closes #7.
+pub fn validate_uuid(uuid: &str) -> Result<()> {
+    if uuid.len() != 36 {
+        return Err(McpError::InvalidToolParameters(format!(
+            "UUID must be 36 characters, got {}",
+            uuid.len()
+        ))
+        .into());
+    }
+    if !uuid.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+        return Err(McpError::InvalidToolParameters(format!(
+            "UUID contains invalid characters (expected [0-9a-fA-F-]): {uuid}"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
 /// Look up a single station by its UUID.
 pub async fn station_by_uuid(client: &reqwest::Client, uuid: &str) -> Result<Option<Station>> {
+    // Validate before injecting into the URL. Closes #7.
+    validate_uuid(uuid)?;
+
     let url = format!("{}/stations/byuuid/{}", RADIO_BROWSER_BASE, uuid);
     let resp = client
         .get(&url)
@@ -61,8 +86,18 @@ pub async fn station_by_uuid(client: &reqwest::Client, uuid: &str) -> Result<Opt
         .await
         .map_err(|e| RadioError::ApiError(e.to_string()))?;
 
-    let stations = parse_stations_response(resp, uuid).await?;
-    Ok(stations.into_iter().next())
+    // NoStationsFound is a valid "not found" result for a UUID lookup.
+    match parse_stations_response(resp, uuid).await {
+        Ok(stations) => Ok(stations.into_iter().next()),
+        Err(e) => {
+            // Treat "no stations" as None rather than an error for UUID lookups.
+            if e.to_string().contains("No stations found") {
+                Ok(None)
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 async fn parse_stations_response(resp: reqwest::Response, query: &str) -> Result<Vec<Station>> {
@@ -98,8 +133,11 @@ fn validate_stream_url(url: &str) -> Result<()> {
     Ok(())
 }
 
-/// Play a station URL with mpv (non-blocking). Returns the spawned child PID.
-pub fn play_station(url: &str) -> Result<u32> {
+/// Play a station URL with mpv (non-blocking).
+///
+/// Returns the spawned `Child` handle so the caller can store it and later stop
+/// or reap the process without zombie risk or PID-reuse hazards. Closes #5.
+pub fn play_station(url: &str) -> Result<Child> {
     use std::process::{Command, Stdio};
 
     validate_stream_url(url)?;
@@ -112,70 +150,54 @@ pub fn play_station(url: &str) -> Result<u32> {
         .spawn()
         .map_err(|e| RadioError::PlayerError(format!("Failed to spawn mpv: {}", e)))?;
 
-    let pid = child.id();
-
-    // Detach: we intentionally do not wait on the child.
-    std::mem::forget(child);
-
-    Ok(pid)
+    Ok(child)
 }
 
-/// Stop a specific mpv process by PID, or all tracked instances.
-pub fn stop_playback_by_pid(pid: Option<u32>) -> Result<()> {
-    if let Some(pid) = pid {
-        // Kill a specific process by PID instead of blindly killing all mpv instances.
-        #[cfg(unix)]
-        {
-            use std::process::Command;
-            let status = Command::new("kill")
-                .arg(pid.to_string())
-                .status()
-                .map_err(|e| RadioError::PlayerError(format!("kill failed: {e}")))?;
-            if !status.success() {
-                let code = status.code().unwrap_or(-1);
-                // Exit code 1 from kill usually means "no such process" — already stopped.
-                if code != 1 {
-                    return Err(RadioError::PlayerError(format!(
-                        "kill exited with unexpected status {code}"
-                    ))
-                    .into());
+/// Stop a specific mpv process represented by its `Child` handle.
+///
+/// Sends SIGTERM via `nix` (no subprocess spawning, no PATH dependency) and
+/// immediately reaps the child to prevent zombies. Closes #5, Closes #6.
+#[cfg(unix)]
+pub fn stop_child(mut child: Child) -> Result<()> {
+    use nix::sys::signal::{Signal, kill};
+    use nix::unistd::Pid;
+
+    // Check if it already exited before trying to kill it.
+    match child.try_wait() {
+        Ok(Some(_)) => {
+            // Process already exited — nothing to kill, already reaped by try_wait.
+            return Ok(());
+        }
+        Ok(None) => {
+            // Still running; send SIGTERM.
+            let pid = Pid::from_raw(child.id() as i32);
+            match kill(pid, Signal::SIGTERM) {
+                Ok(()) => {}
+                Err(nix::errno::Errno::ESRCH) => {
+                    // Raced with process exit — not an error.
+                }
+                Err(e) => {
+                    return Err(RadioError::PlayerError(format!("SIGTERM failed: {e}")).into());
                 }
             }
         }
-        #[cfg(not(unix))]
-        {
-            let _ = pid;
-            return Err(RadioError::PlayerError(
-                "PID-based stop not supported on this platform".to_string(),
-            )
-            .into());
+        Err(e) => {
+            return Err(RadioError::PlayerError(format!("try_wait failed: {e}")).into());
         }
-    } else {
-        // Fallback: stop all mpv instances (backward compatible).
-        stop_all_mpv()?;
     }
+
+    // Reap the child (prevents zombie). Ignore any error from wait since the
+    // process may have already exited between SIGTERM and here.
+    let _ = child.wait();
     Ok(())
 }
 
-/// Stop all running mpv instances (legacy fallback).
-fn stop_all_mpv() -> Result<()> {
-    use std::process::Command;
-
-    let status = Command::new("pkill")
-        .arg("mpv")
-        .status()
-        .map_err(|e| RadioError::PlayerError(format!("pkill failed: {e}")))?;
-
-    if !status.success() {
-        let code = status.code().unwrap_or(-1);
-        if code != 1 {
-            return Err(RadioError::PlayerError(format!(
-                "pkill exited with unexpected status {code}"
-            ))
-            .into());
-        }
-    }
-
+#[cfg(not(unix))]
+pub fn stop_child(mut child: Child) -> Result<()> {
+    child
+        .kill()
+        .map_err(|e| RadioError::PlayerError(format!("kill failed: {e}")))?;
+    let _ = child.wait();
     Ok(())
 }
 
@@ -194,5 +216,30 @@ mod tests {
         assert!(validate_stream_url("file:///etc/passwd").is_err());
         assert!(validate_stream_url("ftp://example.com/radio.mp3").is_err());
         assert!(validate_stream_url("rtsp://example.com/stream").is_err());
+    }
+
+    // Closes #7 — UUID validation
+    #[test]
+    fn test_validate_uuid_accepts_valid() {
+        assert!(validate_uuid("550e8400-e29b-41d4-a716-446655440000").is_ok());
+        assert!(validate_uuid("00000000-0000-0000-0000-000000000000").is_ok());
+    }
+
+    #[test]
+    fn test_validate_uuid_rejects_short() {
+        assert!(validate_uuid("550e8400-e29b-41d4").is_err());
+    }
+
+    #[test]
+    fn test_validate_uuid_rejects_invalid_chars() {
+        assert!(validate_uuid("550e8400-e29b-41d4-a716-44665544000!").is_err());
+        // Path traversal attempt
+        assert!(validate_uuid("../../etc/passwd!!!!!!!!!!!!!!!!!!!").is_err());
+    }
+
+    #[test]
+    fn test_validate_uuid_rejects_injection() {
+        // Query-string injection attempt (36 chars, but contains '?')
+        assert!(validate_uuid("550e8400-e29b-41d4-a716-4466554?0000").is_err());
     }
 }
