@@ -1,32 +1,9 @@
-#![deny(warnings)]
-
-// Central error types for internet-radio-mcp.
+//! Domain errors for internet-radio-mcp.
+//!
+//! Transport and protocol errors are owned by mcp-core; only radio-specific
+//! and parameter errors live here.
 
 use thiserror::Error;
-
-/// Top-level error type used across the crate.
-#[derive(Error, Debug)]
-pub enum InternetRadioMcpError {
-    /// MCP protocol errors.
-    #[error("MCP protocol error: {0}")]
-    Mcp(#[from] McpError),
-
-    /// Transport-layer errors.
-    #[error("Transport error: {0}")]
-    Transport(#[from] TransportError),
-
-    /// Radio operation errors.
-    #[error("Radio error: {0}")]
-    Radio(#[from] RadioError),
-
-    /// JSON serialization/deserialization errors.
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
-
-    /// Underlying I/O errors.
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-}
 
 /// Errors related to radio operations (search, playback, etc.)
 #[derive(Error, Debug)]
@@ -44,13 +21,9 @@ pub enum RadioError {
     NoStationsFound(String),
 }
 
-/// Errors related to MCP/JSON-RPC semantics.
+/// Errors related to tool parameter validation.
 #[derive(Error, Debug)]
 pub enum McpError {
-    /// Unsupported MCP protocol version in initialize request.
-    #[error("Unsupported protocol version: {0}")]
-    InvalidProtocolVersion(String),
-
     /// Requested tool name does not exist.
     #[error("Tool not found: {0}")]
     ToolNotFound(String),
@@ -60,23 +33,23 @@ pub enum McpError {
     InvalidToolParameters(String),
 }
 
-/// Transport-level framing and connection errors.
+/// Top-level error type used across the crate.
 #[derive(Error, Debug)]
-pub enum TransportError {
-    /// WebSocket connection error.
-    #[error("WebSocket connection error: {0}")]
-    WebSocket(String),
+pub enum InternetRadioMcpError {
+    /// Tool parameter / validation errors.
+    #[error("MCP error: {0}")]
+    Mcp(#[from] McpError),
 
-    /// Incoming message framing or format was invalid.
-    #[error("Invalid message format: {0}")]
-    InvalidMessage(String),
+    /// Radio operation errors.
+    #[error("Radio error: {0}")]
+    Radio(#[from] RadioError),
 
-    /// Transport stream was closed by peer.
-    #[error("Connection closed")]
-    ConnectionClosed,
+    /// JSON serialization/deserialization errors.
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
 
-    /// I/O error while reading or writing transport data.
-    #[error("Transport IO error: {0}")]
+    /// Underlying I/O errors.
+    #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
 
