@@ -5,9 +5,7 @@ edition = "2024"
 license = "Apache-2.0"
 
 [dependencies]
-axum = { version = "0.8.8", features = ["ws"] }
-clap = { version = "4.5.54", features = ["derive", "env"] }
-futures-util = "0.3.31"
+mcp-core = { git = "https://github.com/adelie-ai/mcp-core" }
 nix = { version = "0.31.3", features = ["signal"] }
 reqwest = { version = "0.13", features = ["json", "query"] }
 serde = { version = "1.0", features = ["derive"] }
