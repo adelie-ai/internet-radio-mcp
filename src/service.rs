@@ -17,13 +17,31 @@ use crate::operations::radio;
 
 // ── server configuration ─────────────────────────────────────────────────────
 
+/// Model-facing summary of this server, emitted as the MCP `instructions`
+/// field in the initialize response.
+///
+/// Why: the host captures `instructions` and uses it as the server's
+/// searchable description, so it must say what the server is for, when to
+/// reach for it, the tools by name, and the load-bearing constraint (playback
+/// is a local `mpv` process on the host's own speakers).
+pub const SERVER_INSTRUCTIONS: &str = "Discover and play live internet radio on this machine. \
+Reach for it whenever the user wants to listen to, find, or control a radio station - live music \
+by genre (jazz, classical, reggae), news or talk radio, or a specific broadcaster. Typical flow: \
+`radio_search` finds stations by name, genre, or tag via the public Radio Browser directory and \
+returns a stream URL, then `radio_play` starts it, while `radio_stop` halts playback and \
+`radio_now_playing` reports the current station. Playback runs a local `mpv` process, so audio \
+comes out of the host machine's own speakers and mpv must be installed; station search needs no \
+API key.";
+
 /// Build the [`ServerConfig`] for internet-radio-mcp.
 ///
 /// Why: kept here (rather than inline in `main`) so the server-level
 /// `instructions` blurb and transport settings are unit-testable without
 /// standing up a transport.
 pub fn server_config() -> ServerConfig {
-    ServerConfig::new("internet-radio-mcp", env!("CARGO_PKG_VERSION")).without_websocket()
+    ServerConfig::new("internet-radio-mcp", env!("CARGO_PKG_VERSION"))
+        .without_websocket()
+        .instructions(SERVER_INSTRUCTIONS)
 }
 
 // ── shared state ─────────────────────────────────────────────────────────────
@@ -94,7 +112,7 @@ impl McpService for RadioService {
         vec![
             ToolDef::new(
                 "radio_search",
-                "Search for internet radio stations via the Radio Browser API. Returns a list of stations with name, stream URL, country, genre tags, bitrate, and vote count.",
+                "Find internet radio stations to listen to - search by station name, genre, or tag (e.g. jazz, news, classical) using the public Radio Browser directory. Returns matching stations, each with a stream URL, country, genre tags, bitrate, and popularity (vote count), best-voted first. Pass a returned stream URL to radio_play to start listening.",
                 json!({
                     "type": "object",
                     "properties": {

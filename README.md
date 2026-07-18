@@ -8,7 +8,7 @@ An MCP server that exposes internet radio search and playback as LLM-callable to
 |---|---|
 | `radio_search` | Search for stations by name or genre/tag via the [Radio Browser](https://www.radio-browser.info/) API |
 | `radio_play` | Start playback of a station (by stream URL or Radio Browser UUID) via `mpv` |
-| `radio_stop` | Stop all currently-playing `mpv` instances |
+| `radio_stop` | Stop the currently-playing station (terminates the tracked `mpv` process) |
 | `radio_now_playing` | Return the name and URL of the currently-playing station |
 
 ## Requirements
@@ -51,5 +51,6 @@ cargo build --release
 ## Notes
 
 - Playback state is in-process and resets on server restart.
-- `radio_play` kills any previously-started `mpv` before starting a new stream.
-- `radio_stop` uses `pkill mpv`; it will stop *all* `mpv` processes on the host.
+- `radio_play` stops the previously-tracked station (if any) before starting a new stream.
+- `radio_stop` sends `SIGTERM` to the tracked `mpv` process only; it does not touch other `mpv` instances on the host.
+- Audio plays through the speakers of the machine running the server (playback is a local `mpv` process).
