@@ -6,7 +6,7 @@
 use std::process::Child;
 use std::sync::Arc;
 
-use mcp_core::{CallError, McpService, ToolDef, ToolReply, async_trait};
+use mcp_core::{CallError, McpService, ServerConfig, ToolDef, ToolReply, async_trait};
 use reqwest::Client;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
@@ -14,6 +14,35 @@ use tokio::sync::Mutex;
 use crate::error::McpError;
 use crate::models::Station;
 use crate::operations::radio;
+
+// ── server configuration ─────────────────────────────────────────────────────
+
+/// Model-facing summary of this server, emitted as the MCP `instructions`
+/// field in the initialize response.
+///
+/// Why: the host captures `instructions` and uses it as the server's
+/// searchable description, so it must say what the server is for, when to
+/// reach for it, the tools by name, and the load-bearing constraint (playback
+/// is a local `mpv` process on the host's own speakers).
+pub const SERVER_INSTRUCTIONS: &str = "Discover and play live internet radio on this machine. \
+Reach for it whenever the user wants to listen to, find, or control a radio station - live music \
+by genre (jazz, classical, reggae), news or talk radio, or a specific broadcaster. Typical flow: \
+`radio_search` finds stations by name, genre, or tag via the public Radio Browser directory and \
+returns a stream URL, then `radio_play` starts it, while `radio_stop` halts playback and \
+`radio_now_playing` reports the current station. Playback runs a local `mpv` process, so audio \
+comes out of the host machine's own speakers and mpv must be installed; station search needs no \
+API key.";
+
+/// Build the [`ServerConfig`] for internet-radio-mcp.
+///
+/// Why: kept here (rather than inline in `main`) so the server-level
+/// `instructions` blurb and transport settings are unit-testable without
+/// standing up a transport.
+pub fn server_config() -> ServerConfig {
+    ServerConfig::new("internet-radio-mcp", env!("CARGO_PKG_VERSION"))
+        .without_websocket()
+        .instructions(SERVER_INSTRUCTIONS)
+}
 
 // ── shared state ─────────────────────────────────────────────────────────────
 
@@ -83,7 +112,7 @@ impl McpService for RadioService {
         vec![
             ToolDef::new(
                 "radio_search",
-                "Search for internet radio stations via the Radio Browser API. Returns a list of stations with name, stream URL, country, genre tags, bitrate, and vote count.",
+                "Find internet radio stations to listen to - search by station name, genre, or tag (e.g. jazz, news, classical) using the public Radio Browser directory. Returns matching stations, each with a stream URL, country, genre tags, bitrate, and popularity (vote count), best-voted first. Pass a returned stream URL to radio_play to start listening.",
                 json!({
                     "type": "object",
                     "properties": {
@@ -491,6 +520,58 @@ mod tests {
         assert!(
             matches!(res, Err(CallError::InvalidParams(_))),
             "expected InvalidParams for non-object args, got {res:?}"
+        );
+    }
+
+    // Server exposes a non-empty, model-facing `instructions` blurb that the
+    // host uses as the server's searchable description; it must name the
+    // primary tools so discovery can reason about the search -> play flow.
+    #[test]
+    fn test_server_config_has_nonempty_instructions() {
+        let cfg = server_config();
+        let instructions = cfg
+            .instructions
+            .expect("server config must set an instructions blurb");
+        assert!(
+            !instructions.trim().is_empty(),
+            "instructions must be non-empty"
+        );
+        assert!(
+            instructions.contains("radio_search"),
+            "instructions should name radio_search, got: {instructions}"
+        );
+        assert!(
+            instructions.contains("radio_play"),
+            "instructions should name radio_play, got: {instructions}"
+        );
+    }
+
+    // radio_search description leads with the natural intent ("listen") and
+    // points at the play handoff so the model chains search -> play. Mirrors
+    // web-mcp's *_description_* natural-terms pin.
+    #[test]
+    fn test_radio_search_description_leads_with_purpose() {
+        let svc = RadioService::new();
+        let tools = svc.tools();
+        let search = tools
+            .iter()
+            .find(|t| t.name == "radio_search")
+            .expect("radio_search tool must exist");
+        let d = search.description.to_lowercase();
+        assert!(
+            d.contains("listen"),
+            "description should surface the natural 'listen' intent, got: {}",
+            search.description
+        );
+        assert!(
+            d.contains("radio_play"),
+            "description should point to radio_play for the search -> play flow, got: {}",
+            search.description
+        );
+        assert!(
+            d.contains("genre"),
+            "description should name the genre search dimension, got: {}",
+            search.description
         );
     }
 
