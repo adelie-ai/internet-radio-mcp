@@ -1,106 +1,98 @@
-    Blocking waiting for file lock on package cache
-    Updating crates.io index
-    Updating mcp-core v0.1.0 (https://github.com/adelie-ai/mcp-core#448b0e4a) -> #be1bbcf4
-note: pass `--verbose` to see 70 unchanged dependencies behind latest
-=== fmt ===
-=== clippy ===
-    Blocking waiting for file lock on package cache
-    Blocking waiting for file lock on package cache
-    Blocking waiting for file lock on package cache
-    Blocking waiting for file lock on package cache
    Compiling proc-macro2 v1.0.106
-   Compiling unicode-ident v1.0.24
    Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
    Compiling libc v0.2.186
     Checking smallvec v1.15.1
     Checking cfg-if v1.0.4
-   Compiling parking_lot_core v0.9.12
     Checking stable_deref_trait v1.2.1
-    Checking bytes v1.11.1
-   Compiling find-msvc-tools v0.1.9
+   Compiling parking_lot_core v0.9.12
     Checking pin-project-lite v0.2.17
    Compiling shlex v1.3.0
+   Compiling find-msvc-tools v0.1.9
+    Checking bytes v1.11.1
     Checking scopeguard v1.2.0
+    Checking itoa v1.0.18
     Checking futures-core v0.3.32
    Compiling fs_extra v1.3.0
-    Checking itoa v1.0.18
    Compiling dunce v1.0.5
     Checking once_cell v1.21.4
     Checking zeroize v1.8.2
    Compiling aws-lc-rs v1.16.3
-    Checking writeable v0.6.3
     Checking litemap v0.8.2
     Checking slab v0.4.12
-   Compiling icu_properties_data v2.2.0
-   Compiling serde_core v1.0.228
+    Checking writeable v0.6.3
     Checking utf8_iter v1.0.4
+   Compiling icu_properties_data v2.2.0
    Compiling icu_normalizer_data v2.2.0
-   Compiling httparse v1.10.1
-    Checking futures-task v0.3.32
-    Checking percent-encoding v2.3.2
-   Compiling rustls v0.23.40
+   Compiling serde_core v1.0.228
     Checking untrusted v0.9.0
+    Checking percent-encoding v2.3.2
     Checking hashbrown v0.17.0
+   Compiling rustls v0.23.40
     Checking futures-sink v0.3.32
+    Checking futures-task v0.3.32
     Checking equivalent v1.0.2
-    Checking lock_api v0.4.14
-    Checking tower-service v0.3.3
-    Checking try-lock v0.2.5
-    Checking fnv v1.0.7
-   Compiling zmij v1.0.21
-    Checking subtle v2.6.1
-    Checking atomic-waker v1.1.2
+   Compiling httparse v1.10.1
    Compiling serde v1.0.228
-    Checking tracing-core v0.1.36
     Checking utf8parse v0.2.2
+    Checking lock_api v0.4.14
+    Checking fnv v1.0.7
+    Checking subtle v2.6.1
+    Checking try-lock v0.2.5
+    Checking tower-service v0.3.3
+   Compiling zmij v1.0.21
+    Checking atomic-waker v1.1.2
     Checking futures-channel v0.3.32
    Compiling serde_json v1.0.149
-    Checking anstyle v1.0.14
-    Checking colorchoice v1.0.5
-    Checking is_terminal_polyfill v1.70.2
+    Checking anstyle-parse v1.0.0
+    Checking rustls-pki-types v1.14.1
     Checking anstyle-query v1.1.5
+    Checking colorchoice v1.0.5
+    Checking anstyle v1.0.14
+    Checking is_terminal_polyfill v1.70.2
+    Checking want v0.3.1
     Checking sync_wrapper v1.0.2
     Checking form_urlencoded v1.2.2
-    Checking clap_lex v1.1.0
-    Checking strsim v0.11.1
-    Checking base64 v0.22.1
-    Checking rustls-pki-types v1.14.1
-    Checking memchr v2.8.0
     Checking openssl-probe v0.2.1
+    Checking tracing-core v0.1.36
     Checking futures-util v0.3.32
-    Checking tower-layer v0.3.3
-    Checking bitflags v2.11.1
-   Compiling heck v0.5.0
+    Checking strsim v0.11.1
+    Checking clap_lex v1.1.0
+    Checking base64 v0.22.1
    Compiling cfg_aliases v0.2.1
+   Compiling heck v0.5.0
+    Checking bitflags v2.11.1
+    Checking memchr v2.8.0
    Compiling thiserror v2.0.18
-    Checking want v0.3.1
+    Checking tower-layer v0.3.3
     Checking ipnet v2.12.0
     Checking log v0.4.29
-   Compiling nix v0.31.3
-    Checking ryu v1.0.23
     Checking iri-string v0.7.12
+    Checking ryu v1.0.23
+   Compiling nix v0.31.3
     Checking encoding_rs v0.8.35
     Checking mime v0.3.17
+    Checking anstream v1.0.0
+    Checking rustls-native-certs v0.8.3
+    Checking clap_builder v4.6.0
     Checking http v1.4.0
-    Checking anstyle-parse v1.0.0
-    Checking indexmap v2.14.0
     Checking tracing v0.1.44
+    Checking indexmap v2.14.0
+   Compiling syn v2.0.117
+    Checking http-body v1.0.1
+    Checking http-body-util v0.1.3
+   Compiling jobserver v0.1.34
+   Compiling cc v1.2.61
     Checking errno v0.3.14
     Checking socket2 v0.6.3
     Checking mio v1.2.0
-    Checking rustls-native-certs v0.8.3
-   Compiling jobserver v0.1.34
-    Checking anstream v1.0.0
     Checking signal-hook-registry v1.4.8
-    Checking http-body v1.0.1
     Checking parking_lot v0.12.5
-   Compiling cc v1.2.61
-    Checking clap_builder v4.6.0
-    Checking http-body-util v0.1.3
-   Compiling syn v2.0.117
    Compiling cmake v0.1.58
    Compiling aws-lc-sys v0.40.0
    Compiling synstructure v0.13.2
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
    Compiling zerovec-derive v0.11.3
    Compiling displaydoc v0.2.5
    Compiling tokio-macros v2.7.0
@@ -108,22 +100,20 @@ note: pass `--verbose` to see 70 unchanged dependencies behind latest
    Compiling thiserror-impl v2.0.18
    Compiling clap_derive v4.6.1
    Compiling async-trait v0.1.89
-   Compiling zerofrom-derive v0.1.7
-   Compiling yoke-derive v0.8.2
     Checking tokio v1.52.1
     Checking zerofrom v0.1.7
     Checking yoke v0.8.2
-    Checking zerovec v0.11.6
     Checking zerotrie v0.2.4
-    Checking clap v4.6.1
+    Checking zerovec v0.11.6
     Checking tinystr v0.8.3
     Checking potential_utf v0.1.5
     Checking icu_collections v2.2.0
+    Checking clap v4.6.1
     Checking icu_locale_core v2.2.0
     Checking icu_provider v2.2.0
-    Checking serde_urlencoded v0.7.1
-    Checking icu_properties v2.2.0
     Checking icu_normalizer v2.2.0
+    Checking icu_properties v2.2.0
+    Checking serde_urlencoded v0.7.1
     Checking idna_adapter v1.2.2
     Checking idna v1.1.0
     Checking url v2.5.8
@@ -132,20 +122,19 @@ note: pass `--verbose` to see 70 unchanged dependencies behind latest
     Checking mcp-core v0.1.0 (https://github.com/adelie-ai/mcp-core#be1bbcf4)
     Checking tower-http v0.6.8
     Checking h2 v0.4.13
-    Checking rustls-webpki v0.103.13
     Checking hyper v1.9.0
+    Checking rustls-webpki v0.103.13
     Checking hyper-util v0.1.20
     Checking tokio-rustls v0.26.4
     Checking rustls-platform-verifier v0.7.0
     Checking hyper-rustls v0.27.9
     Checking reqwest v0.13.3
-    Checking internet-radio-mcp v0.1.0 (/home/dave/Projects/adelie-ai/.worktrees/internet-radio-mcp/mcp-core-bump)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 21.09s
-=== test ===
+    Checking internet-radio-mcp v0.1.0 (/home/dave/Projects/adelie-ai/.worktrees/internet-radio-mcp/secfix)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.65s
    Compiling smallvec v1.15.1
    Compiling cfg-if v1.0.4
-   Compiling bytes v1.11.1
    Compiling pin-project-lite v0.2.17
+   Compiling bytes v1.11.1
    Compiling stable_deref_trait v1.2.1
    Compiling scopeguard v1.2.0
    Compiling futures-core v0.3.32
@@ -156,67 +145,67 @@ note: pass `--verbose` to see 70 unchanged dependencies behind latest
    Compiling writeable v0.6.3
    Compiling slab v0.4.12
    Compiling utf8_iter v1.0.4
+   Compiling untrusted v0.9.0
    Compiling hashbrown v0.17.0
    Compiling futures-task v0.3.32
-   Compiling percent-encoding v2.3.2
-   Compiling untrusted v0.9.0
-   Compiling equivalent v1.0.2
    Compiling futures-sink v0.3.32
+   Compiling percent-encoding v2.3.2
+   Compiling equivalent v1.0.2
    Compiling fnv v1.0.7
+   Compiling subtle v2.6.1
    Compiling try-lock v0.2.5
    Compiling atomic-waker v1.1.2
-   Compiling subtle v2.6.1
    Compiling utf8parse v0.2.2
-   Compiling tower-service v0.3.3
    Compiling libc v0.2.186
-   Compiling lock_api v0.4.14
-   Compiling icu_properties_data v2.2.0
-   Compiling icu_normalizer_data v2.2.0
-   Compiling serde_core v1.0.228
-   Compiling httparse v1.10.1
+   Compiling tower-service v0.3.3
    Compiling is_terminal_polyfill v1.70.2
    Compiling anstyle-query v1.1.5
-   Compiling colorchoice v1.0.5
+   Compiling lock_api v0.4.14
+   Compiling icu_properties_data v2.2.0
+   Compiling serde_core v1.0.228
+   Compiling icu_normalizer_data v2.2.0
+   Compiling httparse v1.10.1
    Compiling anstyle v1.0.14
+   Compiling colorchoice v1.0.5
    Compiling zmij v1.0.21
    Compiling zerofrom v0.1.7
+   Compiling futures-channel v0.3.32
    Compiling aws-lc-sys v0.40.0
-   Compiling openssl-probe v0.2.1
+   Compiling sync_wrapper v1.0.2
    Compiling anstyle-parse v1.0.0
    Compiling want v0.3.1
-   Compiling bitflags v2.11.1
-   Compiling futures-channel v0.3.32
-   Compiling sync_wrapper v1.0.2
-   Compiling tower-layer v0.3.3
    Compiling ipnet v2.12.0
-   Compiling rustls-pki-types v1.14.1
-   Compiling clap_lex v1.1.0
-   Compiling form_urlencoded v1.2.2
-   Compiling memchr v2.8.0
+   Compiling bitflags v2.11.1
    Compiling base64 v0.22.1
+   Compiling tower-layer v0.3.3
    Compiling strsim v0.11.1
-   Compiling futures-util v0.3.32
+   Compiling rustls-pki-types v1.14.1
+   Compiling memchr v2.8.0
+   Compiling openssl-probe v0.2.1
+   Compiling clap_lex v1.1.0
    Compiling log v0.4.29
-   Compiling tracing-core v0.1.36
+   Compiling form_urlencoded v1.2.2
    Compiling iri-string v0.7.12
+   Compiling yoke v0.8.2
+   Compiling futures-util v0.3.32
    Compiling ryu v1.0.23
    Compiling thiserror v2.0.18
-   Compiling yoke v0.8.2
+   Compiling tracing-core v0.1.36
    Compiling encoding_rs v0.8.35
    Compiling mime v0.3.17
    Compiling anstream v1.0.0
    Compiling zerovec v0.11.6
    Compiling zerotrie v0.2.4
-   Compiling rustls-native-certs v0.8.3
    Compiling clap_builder v4.6.0
-   Compiling http v1.4.0
+   Compiling rustls-native-certs v0.8.3
    Compiling tracing v0.1.44
+   Compiling http v1.4.0
    Compiling indexmap v2.14.0
+   Compiling aws-lc-rs v1.16.3
    Compiling tinystr v0.8.3
    Compiling potential_utf v0.1.5
-   Compiling aws-lc-rs v1.16.3
-   Compiling icu_locale_core v2.2.0
    Compiling icu_collections v2.2.0
+   Compiling icu_locale_core v2.2.0
    Compiling http-body v1.0.1
    Compiling http-body-util v0.1.3
    Compiling errno v0.3.14
@@ -229,11 +218,11 @@ note: pass `--verbose` to see 70 unchanged dependencies behind latest
    Compiling rustls-webpki v0.103.13
    Compiling icu_provider v2.2.0
    Compiling tokio v1.52.1
+   Compiling icu_normalizer v2.2.0
+   Compiling icu_properties v2.2.0
+   Compiling rustls v0.23.40
    Compiling serde v1.0.228
    Compiling serde_json v1.0.149
-   Compiling icu_properties v2.2.0
-   Compiling icu_normalizer v2.2.0
-   Compiling rustls v0.23.40
    Compiling clap v4.6.1
    Compiling serde_urlencoded v0.7.1
    Compiling idna_adapter v1.2.2
@@ -250,37 +239,37 @@ note: pass `--verbose` to see 70 unchanged dependencies behind latest
    Compiling hyper-util v0.1.20
    Compiling hyper-rustls v0.27.9
    Compiling reqwest v0.13.3
-   Compiling internet-radio-mcp v0.1.0 (/home/dave/Projects/adelie-ai/.worktrees/internet-radio-mcp/mcp-core-bump)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.13s
+   Compiling internet-radio-mcp v0.1.0 (/home/dave/Projects/adelie-ai/.worktrees/internet-radio-mcp/secfix)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.43s
      Running unittests src/lib.rs (target/debug/deps/internet_radio_mcp-7cd92bd8a42c2fdc)
 
 running 24 tests
 test operations::radio::tests::test_validate_stream_url_accepts_http ... ok
 test operations::radio::tests::test_validate_stream_url_rejects_non_http ... ok
-test operations::radio::tests::test_validate_uuid_accepts_valid ... ok
 test operations::radio::tests::test_validate_uuid_rejects_injection ... ok
 test operations::radio::tests::test_validate_uuid_rejects_invalid_chars ... ok
 test operations::radio::tests::test_validate_uuid_rejects_short ... ok
+test operations::radio::tests::test_validate_uuid_accepts_valid ... ok
 test service::tests::test_server_config_has_nonempty_instructions ... ok
+test service::tests::test_search_schema_limit_is_integer ... ok
 test service::tests::test_radio_search_description_leads_with_purpose ... ok
-test service::tests::test_now_playing_default ... ok
+test service::tests::test_play_file_url_rejected ... ok
 test service::tests::test_now_playing_no_pid_in_output ... ok
+test service::tests::test_play_malformed_uuid_returns_error ... ok
+test service::tests::test_play_missing_url_and_uuid ... ok
+test service::tests::test_non_object_args_invalid_params ... ok
+test service::tests::test_play_uuid_injection_rejected ... ok
+test service::tests::test_play_invalid_uuid_rejected ... ok
+test service::tests::test_stop_schema_description_accurate ... ok
+test service::tests::test_search_missing_query ... ok
 test service::tests::test_tools_returns_four ... ok
 test tests::build_service_exposes_tools ... ok
-test service::tests::test_stop_schema_description_accurate ... ok
-test service::tests::test_search_schema_includes_genre_enum ... ok
-test service::tests::test_play_invalid_uuid_rejected ... ok
-test service::tests::test_play_missing_url_and_uuid ... ok
-test service::tests::test_search_missing_query ... ok
-test service::tests::test_play_uuid_injection_rejected ... ok
-test service::tests::test_play_file_url_rejected ... ok
-test service::tests::test_tool_not_found ... ok
-test service::tests::test_search_schema_limit_is_integer ... ok
-test service::tests::test_non_object_args_invalid_params ... ok
 test service::tests::test_stop_when_nothing_playing ... ok
-test service::tests::test_play_malformed_uuid_returns_error ... ok
+test service::tests::test_search_schema_includes_genre_enum ... ok
+test service::tests::test_now_playing_default ... ok
+test service::tests::test_tool_not_found ... ok
 
-test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
 
      Running unittests src/main.rs (target/debug/deps/internet_radio_mcp-3aefe53eb873bc5d)
 
