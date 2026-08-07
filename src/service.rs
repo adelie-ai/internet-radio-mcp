@@ -386,8 +386,8 @@ impl RadioService {
 /// counted".
 fn upstream_failure_reason(err: &InternetRadioMcpError) -> Option<&'static str> {
     match err {
-        InternetRadioMcpError::Radio(RadioError::ApiError(_)) => None,
-        InternetRadioMcpError::Radio(RadioError::PlayerError(_)) => None,
+        InternetRadioMcpError::Radio(RadioError::ApiError(_)) => Some("directory"),
+        InternetRadioMcpError::Radio(RadioError::PlayerError(_)) => Some("player"),
         InternetRadioMcpError::Radio(RadioError::NoStationsFound(_)) => None,
         InternetRadioMcpError::Mcp(_)
         | InternetRadioMcpError::Json(_)

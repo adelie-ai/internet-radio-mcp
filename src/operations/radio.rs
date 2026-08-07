@@ -48,6 +48,11 @@ async fn search_stations(
         ("order", "votes"),
     ];
 
+    // A search query is a tool argument -- content, per epic D10 -- so it
+    // stays at DEBUG and is never attached to a span (this function has no
+    // span of its own).
+    tracing::debug!(field, query, limit, "querying radio directory");
+
     let resp = client
         .get(&url)
         .query(&params)
@@ -90,6 +95,10 @@ pub async fn station_by_uuid(
     validate_uuid(uuid)?;
 
     let url = format!("{base_url}/stations/byuuid/{uuid}");
+
+    // A station UUID identifies which station a caller wants to hear -- a
+    // preference, so DEBUG only, same as a search query (epic D10).
+    tracing::debug!(uuid, "looking up station by uuid");
 
     let resp = client
         .get(&url)
@@ -151,6 +160,11 @@ fn validate_stream_url(url: &str) -> Result<()> {
 /// or reap the process without zombie risk or PID-reuse hazards. Closes #5.
 pub fn play_station(url: &str) -> Result<Child> {
     use std::process::{Command, Stdio};
+
+    // A stream URL is what someone is choosing to listen to -- a preference,
+    // so DEBUG only (epic D10). Logged before validation so an attempt is
+    // still visible even when the url is then locally rejected.
+    tracing::debug!(url, "attempting stream playback");
 
     validate_stream_url(url)?;
 
