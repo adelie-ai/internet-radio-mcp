@@ -48,6 +48,47 @@ cargo build --release
 {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"radio_stop","arguments":{}}}
 ```
 
+## Logging
+
+`mcp-core`'s `run` installs the process subscriber; this crate calls nothing
+to get it. Logs go to stderr, never stdout -- the stdio transport frames
+JSON-RPC on stdout, and one log line there would corrupt the protocol
+stream. `RUST_LOG` sets the level (default `info`); see `mcp-core`'s own
+README for the full level contract, the request/tool-call spans, and the
+standard `OTEL_*` environment variables.
+
+What this server adds on top of what it inherits:
+
+- A `debug!` line for each call to the Radio Browser directory (a search, or
+  a UUID lookup) and each attempt to start stream playback. A search query,
+  a station UUID, and a stream URL are all tool arguments -- what someone is
+  choosing to listen to, a preference -- so they stay at DEBUG and never
+  reach a span field. `RUST_LOG=debug` is what it takes to see them.
+- `radio.upstream_failures`, a counter labelled `tool` and `reason`
+  (`directory` for a Radio Browser fault, `player` for an mpv fault), for a
+  failure reaching outward. An empty search result ("no stations found") is
+  the directory doing its job, not a fault, and is not counted here.
+- `mcp-core` already records a tool-call counter and a latency histogram by
+  tool and outcome (`mcp.tools.call`, `mcp.tools.call.duration`); this server
+  does not duplicate them.
+
+### The `otel` feature
+
+Off by default. A pure passthrough --
+`internet-radio-mcp -> mcp-core -> adelie-telemetry` -- so this crate takes
+no direct dependency on `adelie-telemetry` or on any opentelemetry crate.
+With the feature off, `cargo tree` resolves no opentelemetry crate at all.
+
+```bash
+cargo build --features otel
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
+  ./target/debug/internet-radio-mcp serve --transport stdio
+```
+
+With no collector configured, the periodic metrics summary still writes to
+stderr, so a default-feature install from `cargo install` gets real numbers
+in the journal.
+
 ## Notes
 
 - Playback state is in-process and resets on server restart.
