@@ -6,12 +6,13 @@
 use std::process::Child;
 use std::sync::Arc;
 
+use mcp_core::telemetry::metrics::{self, Label};
 use mcp_core::{CallError, McpService, ServerConfig, ToolDef, ToolReply, async_trait};
 use reqwest::Client;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-use crate::error::McpError;
+use crate::error::{InternetRadioMcpError, McpError, RadioError};
 use crate::models::Station;
 use crate::operations::radio;
 
@@ -78,11 +79,24 @@ impl Default for NowPlaying {
 
 // ── service ──────────────────────────────────────────────────────────────────
 
+/// Overrides the Radio Browser base URL a freshly constructed [`RadioService`]
+/// points at. Not an operator-facing feature: no CLI flag reaches it and the
+/// README does not document it. It exists purely as a seam for
+/// `tests/telemetry_stdio.rs`, which spawns the real binary as a child
+/// process and has no other way to point it at a local mock server instead
+/// of the live directory (mcp-core#40: no test may reach a live directory or
+/// stream). Unset in every real deployment.
+const RADIO_BROWSER_BASE_ENV_VAR: &str = "INTERNET_RADIO_MCP_RADIO_BROWSER_BASE";
+
 /// The MCP service for internet-radio-mcp.
 ///
 /// Wraps the shared `NowPlaying` state; `McpService` is wired up by mcp-core.
 pub struct RadioService {
     http_client: Client,
+    // The Radio Browser base URL. A field (rather than the bare constant)
+    // so a test can point it at a local mock server; see
+    // `RADIO_BROWSER_BASE_ENV_VAR` and `with_radio_browser_base`.
+    radio_browser_base: String,
     // Mutex (not RwLock) because play and stop both mutate the child handle.
     // The Mutex ensures the full stop-prior → spawn → update sequence is
     // atomic, preventing concurrent play calls from double-spawning mpv.
@@ -93,9 +107,23 @@ pub struct RadioService {
 impl RadioService {
     /// Create a new service instance.
     pub fn new() -> Self {
+        let radio_browser_base = std::env::var(RADIO_BROWSER_BASE_ENV_VAR)
+            .unwrap_or_else(|_| radio::RADIO_BROWSER_BASE.to_string());
         Self {
             http_client: Client::new(),
+            radio_browser_base,
             now_playing: Arc::new(Mutex::new(NowPlaying::default())),
+        }
+    }
+
+    /// Create a service instance pointed at a custom Radio Browser base URL,
+    /// bypassing `RADIO_BROWSER_BASE_ENV_VAR`. For a test that builds the
+    /// service in-process (rather than through a spawned child) and wants a
+    /// local mock server without touching the environment.
+    pub fn with_radio_browser_base(base_url: impl Into<String>) -> Self {
+        Self {
+            radio_browser_base: base_url.into(),
+            ..Self::new()
         }
     }
 }
@@ -198,6 +226,11 @@ impl McpService for RadioService {
 // ── tool implementations ─────────────────────────────────────────────────────
 
 impl RadioService {
+    // `args` carries the search query -- a tool argument, so it is content
+    // (mcp-core#40, epic D10) -- so `skip_all`. The span still gives this
+    // handler's own work its own timing, nested under mcp-core's
+    // `mcp.tools.call` span.
+    #[tracing::instrument(skip_all)]
     async fn exec_radio_search(
         &self,
         args: &serde_json::Map<String, Value>,
@@ -215,15 +248,19 @@ impl RadioService {
             .unwrap_or(10)
             .min(50) as u32;
 
-        let stations = match by {
-            // "genre" is an accepted alias for "tag". Closes #8.
-            "tag" | "genre" => radio::search_by_tag(&self.http_client, query, limit)
-                .await
-                .map_err(|e| CallError::tool(e.to_string()))?,
-            _ => radio::search_by_name(&self.http_client, query, limit)
-                .await
-                .map_err(|e| CallError::tool(e.to_string()))?,
+        // "genre" is an accepted alias for "tag". Closes #8.
+        let search_result = match by {
+            "tag" | "genre" => {
+                radio::search_by_tag(&self.http_client, &self.radio_browser_base, query, limit)
+                    .await
+            }
+            _ => {
+                radio::search_by_name(&self.http_client, &self.radio_browser_base, query, limit)
+                    .await
+            }
         };
+        record_upstream_failure("radio_search", &search_result);
+        let stations = search_result.map_err(|e| CallError::tool(e.to_string()))?;
 
         let items: Vec<Value> = stations
             .iter()
@@ -244,6 +281,9 @@ impl RadioService {
         ToolReply::json(&items).map_err(CallError::from)
     }
 
+    // `args` carries the url, uuid and/or name a caller chose to play --
+    // content (mcp-core#40, epic D10) -- so `skip_all`.
+    #[tracing::instrument(skip_all)]
     async fn exec_radio_play(
         &self,
         args: &serde_json::Map<String, Value>,
@@ -264,8 +304,10 @@ impl RadioService {
                 other => CallError::tool(other.to_string()),
             })?;
 
-            let station = radio::station_by_uuid(&self.http_client, uuid)
-                .await
+            let lookup_result =
+                radio::station_by_uuid(&self.http_client, &self.radio_browser_base, uuid).await;
+            record_upstream_failure("radio_play", &lookup_result);
+            let station = lookup_result
                 .map_err(|e| CallError::tool(e.to_string()))?
                 .ok_or_else(|| CallError::tool(format!("Station UUID not found: {uuid}")))?;
             (station.url_resolved.clone(), station.name.clone())
@@ -284,7 +326,9 @@ impl RadioService {
             let _ = radio::stop_child(child);
         }
 
-        let child = radio::play_station(&stream_url).map_err(|e| CallError::tool(e.to_string()))?;
+        let play_result = radio::play_station(&stream_url);
+        record_upstream_failure("radio_play", &play_result);
+        let child = play_result.map_err(|e| CallError::tool(e.to_string()))?;
 
         np.child = Some(child);
         np.station = Some(Station {
@@ -304,6 +348,9 @@ impl RadioService {
         )))
     }
 
+    // No arguments to skip, but instrumented for consistency: every tool
+    // handler opens its own span, nested under mcp-core's `mcp.tools.call`.
+    #[tracing::instrument(skip_all)]
     async fn exec_radio_stop(&self) -> Result<ToolReply, CallError> {
         let mut np = self.now_playing.lock().await;
 
@@ -316,6 +363,7 @@ impl RadioService {
         Ok(ToolReply::text("⏹ Playback stopped."))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn exec_radio_now_playing(&self) -> Result<ToolReply, CallError> {
         let np = self.now_playing.lock().await;
         // PID is an implementation detail; omit from user-facing output. Closes #8.
@@ -324,6 +372,44 @@ impl RadioService {
             None => "⏹ Nothing is currently playing.".to_string(),
         };
         Ok(ToolReply::text(text))
+    }
+}
+
+/// Classify an upstream-call failure into the bounded reason
+/// [`record_upstream_failure`] counts, or `None` for a normal "not found"
+/// result rather than a fault reaching outward. Rule 8.2 keeps an
+/// operational decline out of a failure counter: an empty Radio Browser
+/// result is the directory doing its job, not the directory breaking.
+///
+/// Exhaustive over [`InternetRadioMcpError`], so a new variant forces this
+/// classification to be revisited rather than silently landing as "not
+/// counted".
+fn upstream_failure_reason(err: &InternetRadioMcpError) -> Option<&'static str> {
+    match err {
+        InternetRadioMcpError::Radio(RadioError::ApiError(_)) => Some("directory"),
+        InternetRadioMcpError::Radio(RadioError::PlayerError(_)) => Some("player"),
+        InternetRadioMcpError::Radio(RadioError::NoStationsFound(_)) => None,
+        InternetRadioMcpError::Mcp(_)
+        | InternetRadioMcpError::Json(_)
+        | InternetRadioMcpError::Io(_) => None,
+    }
+}
+
+/// Count an upstream-call failure against `radio.upstream_failures`.
+///
+/// `tool` is always one of the `&'static str` literals its call sites pass,
+/// so the label is bounded there rather than by anything a caller supplies;
+/// `reason` is bounded the same way, by [`upstream_failure_reason`]'s fixed
+/// set of return values. Neither label is ever built from a station name, a
+/// search query, a UUID, or a stream URL.
+fn record_upstream_failure<T>(tool: &'static str, outcome: &Result<T, InternetRadioMcpError>) {
+    if let Err(err) = outcome
+        && let Some(reason) = upstream_failure_reason(err)
+    {
+        metrics::increment(
+            "radio.upstream_failures",
+            &[Label::new("tool", tool), Label::new("reason", reason)],
+        );
     }
 }
 
@@ -588,6 +674,102 @@ mod tests {
         assert!(
             matches!(res, Err(CallError::InvalidParams(_))),
             "expected InvalidParams for injection uuid, got {res:?}"
+        );
+    }
+
+    // ── telemetry: upstream-failure classification (mcp-core#40) ───────────
+    //
+    // The metrics registry is process-global and cargo test runs a file's
+    // tests concurrently by default, so every test here that touches it is
+    // serialised behind this mutex (mcp-core#40, lesson 6). It holds no data
+    // of its own.
+    static METRICS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock_metrics() -> std::sync::MutexGuard<'static, ()> {
+        METRICS_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn counter_total(name: &str, labels: &[Label]) -> u64 {
+        metrics::global()
+            .snapshot()
+            .counters
+            .iter()
+            .find(|c| c.name == name && same_labels(&c.labels, labels))
+            .map_or(0, |c| c.total)
+    }
+
+    fn same_labels(recorded: &[Label], wanted: &[Label]) -> bool {
+        recorded.len() == wanted.len()
+            && wanted.iter().all(|want| {
+                recorded
+                    .iter()
+                    .any(|have| have.key() == want.key() && have.value() == want.value())
+            })
+    }
+
+    #[test]
+    fn upstream_failure_reason_counts_directory_and_player_faults() {
+        assert_eq!(
+            upstream_failure_reason(&InternetRadioMcpError::Radio(RadioError::ApiError(
+                "x".into()
+            ))),
+            Some("directory"),
+            "a Radio Browser API fault must count as an upstream failure"
+        );
+        assert_eq!(
+            upstream_failure_reason(&InternetRadioMcpError::Radio(RadioError::PlayerError(
+                "x".into()
+            ))),
+            Some("player"),
+            "an mpv player fault must count as an upstream failure"
+        );
+    }
+
+    #[test]
+    fn upstream_failure_reason_excludes_no_stations_found() {
+        // A "no stations found" result is the directory doing its job, not a
+        // fault reaching outward -- rule 8.2 keeps an operational decline out
+        // of a failure counter.
+        assert_eq!(
+            upstream_failure_reason(&InternetRadioMcpError::Radio(RadioError::NoStationsFound(
+                "x".into()
+            ))),
+            None,
+            "an empty ('no stations found') result must not count as an upstream failure"
+        );
+    }
+
+    #[test]
+    fn record_upstream_failure_increments_only_for_counted_reasons() {
+        let _guard = lock_metrics();
+        let labels = [
+            Label::new("tool", "radio_search"),
+            Label::new("reason", "directory"),
+        ];
+        let before = counter_total("radio.upstream_failures", &labels);
+
+        let ok: Result<Vec<Station>, InternetRadioMcpError> = Ok(vec![]);
+        record_upstream_failure("radio_search", &ok);
+        let not_found: Result<Vec<Station>, InternetRadioMcpError> = Err(
+            InternetRadioMcpError::Radio(RadioError::NoStationsFound("x".into())),
+        );
+        record_upstream_failure("radio_search", &not_found);
+        assert_eq!(
+            counter_total("radio.upstream_failures", &labels),
+            before,
+            "a success or an empty-result decline must not move the counter"
+        );
+
+        let api_failed: Result<Vec<Station>, InternetRadioMcpError> = Err(
+            InternetRadioMcpError::Radio(RadioError::ApiError("x".into())),
+        );
+        record_upstream_failure("radio_search", &api_failed);
+        assert_eq!(
+            counter_total("radio.upstream_failures", &labels),
+            before + 1,
+            "a directory fault must increment the counter, labelled by tool and reason"
         );
     }
 }
