@@ -2,6 +2,15 @@
 //!
 //! Each test is named after the criterion it holds, so a failing run names
 //! the unmet requirement rather than a line number.
+//!
+//! Content-leak coverage (mcp-core#40, lessons 8 and 9): table-driven over
+//! every tool, and every scenario below is run against a success, a
+//! failure, and (for `radio_search`) an empty upstream response. An error
+//! type's `Display` is written to be helpful, and helpful means quoting
+//! what failed -- `RadioError::NoStationsFound`'s message embeds the raw
+//! query, and the "Station UUID not found" message embeds the raw uuid --
+//! so the failure branch is exactly where a leak most naturally hides, and
+//! a suite that only ever mocks success never runs that code at all.
 
 mod support;
 
@@ -9,11 +18,10 @@ use httpmock::Method::GET;
 use httpmock::MockServer;
 use mcp_core::telemetry::metrics::{self, Label};
 use serde_json::json;
-use tracing::Level;
 
 use support::{
-    SENTINEL, assert_tool_coverage_is_complete, capture_dispatch_with_base, expected_span_name,
-    sentinel_arguments_by_tool,
+    Recorded, assert_no_leak, assert_reachable_at_debug, assert_tool_coverage_is_complete,
+    capture_dispatch_with_base, sentinel_arguments_by_tool, sentinels_present_in, uuid_lookup_case,
 };
 
 /// The metrics registry [`mcp_core::telemetry::metrics`] records into is
@@ -45,32 +53,12 @@ fn station_fixture() -> serde_json::Value {
     }])
 }
 
-/// AC (epic D10 / mcp-core#40, lesson 8): no station name, search query, or
-/// stream URL reaches a span field or an INFO-or-louder line, for every tool
-/// the server exposes -- not just the one tool this suite happens to
-/// remember to drive. `assert_tool_coverage_is_complete` makes that a
-/// property of the test rather than a promise: a tool added without a
-/// registered case fails here, by name, instead of shipping silently
-/// uncovered.
-///
-/// The same run proves the positive half too: each call opens its own
-/// `exec_radio_*` span, so this test cannot pass simply because nothing was
-/// instrumented, and the sentinel is still visible at DEBUG (via mcp-core's
-/// own dispatch-layer argument logging), so it cannot pass simply because a
-/// line was deleted.
-#[test]
-fn tool_call_records_no_arguments() {
-    let _guard = lock_metrics();
-    let server = MockServer::start();
-    let _mock = server.mock(|when, then| {
-        when.method(GET).path("/json/stations/search");
-        then.status(200).json_body(station_fixture());
-    });
-    let base_url = format!("{}/json", server.base_url());
-
-    let cases = sentinel_arguments_by_tool();
-    assert_tool_coverage_is_complete(&cases);
-
+/// Drive `cases` (initialize, then one `tools/call` per case) against a
+/// `RadioService` pointed at `base_url`, and assert the standard
+/// leak-freedom properties: every named tool opens its own span, no span
+/// field or INFO-or-louder event carries a sentinel, and every sentinel the
+/// cases actually sent is still reachable at DEBUG.
+fn run_leak_check(base_url: &str, cases: &[(&'static str, serde_json::Value)]) -> Recorded {
     let mut messages =
         vec![json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})];
     for (i, (name, args)) in cases.iter().enumerate() {
@@ -82,55 +70,114 @@ fn tool_call_records_no_arguments() {
         }));
     }
 
-    let recorded = capture_dispatch_with_base(&base_url, &messages);
+    let recorded = capture_dispatch_with_base(base_url, &messages);
 
-    for (name, _) in &cases {
-        let expected = expected_span_name(name);
-        assert!(
-            recorded.spans.iter().any(|s| s.name == expected),
-            "expected a {expected:?} span for tool {name:?}; spans were {:?}",
-            recorded.span_summary()
-        );
-    }
+    let expected_tools: Vec<&str> = cases.iter().map(|(name, _)| *name).collect();
+    assert_no_leak(&recorded, &expected_tools);
+    assert_reachable_at_debug(&recorded, &sentinels_present_in(cases));
 
-    for span in &recorded.spans {
-        for (key, value) in &span.fields {
-            assert!(
-                !value.contains(SENTINEL),
-                "the sentinel leaked into span {:?} field {key:?}: {value:?}; all spans were {:?}",
-                span.name,
-                recorded.span_summary()
-            );
-        }
-    }
+    recorded
+}
 
-    for event in &recorded.events {
-        // DEBUG/TRACE may legitimately carry tool arguments (D10) -- that is
-        // mcp-core's own dispatch layer, inherited rather than added here.
-        // Only INFO and louder are checked.
-        if event.level > Level::INFO {
-            continue;
-        }
-        for (key, value) in &event.fields {
-            assert!(
-                !value.contains(SENTINEL),
-                "the sentinel leaked into a {} line, field {key:?}: {value:?}; all events were {:?}",
-                event.level,
-                recorded.event_summary()
-            );
-        }
-    }
+/// AC (epic D10 / mcp-core#40, lesson 8): no station name, search query, or
+/// stream URL reaches a span field or an INFO-or-louder line, for every tool
+/// the server exposes, on the *success* path -- not just the one tool this
+/// suite happens to remember to drive. `assert_tool_coverage_is_complete`
+/// makes that a property of the test rather than a promise: a tool added
+/// without a registered case fails here, by name, instead of shipping
+/// silently uncovered.
+#[test]
+fn tool_call_records_no_arguments_on_search_success() {
+    let _guard = lock_metrics();
+    let server = MockServer::start();
+    let _mock = server.mock(|when, then| {
+        when.method(GET).path("/json/stations/search");
+        then.status(200).json_body(station_fixture());
+    });
+    let base_url = format!("{}/json", server.base_url());
 
-    let at_debug = recorded
-        .events
-        .iter()
-        .any(|e| e.level == Level::DEBUG && e.fields.values().any(|v| v.contains(SENTINEL)));
-    assert!(
-        at_debug,
-        "the sentinel must still be reachable at DEBUG, or this test cannot tell a real fix \
-         from a line that was simply deleted; events were {:?}",
-        recorded.event_summary()
-    );
+    let cases = sentinel_arguments_by_tool();
+    assert_tool_coverage_is_complete(&cases);
+
+    run_leak_check(&base_url, &cases);
+}
+
+/// AC (mcp-core#40, lesson 9): the same property holds when the directory
+/// call fails outright. `RadioError::ApiError`'s message embeds the HTTP
+/// status but not the query, so this is mostly a proof that the failure
+/// branch is exercised at all -- the sharper case is the empty-result and
+/// uuid-not-found scenarios below, whose messages do embed a caller value.
+#[test]
+fn tool_call_records_no_arguments_on_search_failure() {
+    let _guard = lock_metrics();
+    let server = MockServer::start();
+    let _mock = server.mock(|when, then| {
+        when.method(GET).path("/json/stations/search");
+        then.status(503);
+    });
+    let base_url = format!("{}/json", server.base_url());
+
+    let cases = sentinel_arguments_by_tool();
+    assert_tool_coverage_is_complete(&cases);
+
+    run_leak_check(&base_url, &cases);
+}
+
+/// AC (mcp-core#40, lesson 9): an empty search result builds
+/// `RadioError::NoStationsFound(query)`, whose `Display` embeds the raw
+/// query text -- the query itself, quoted back in a message that becomes
+/// the tool's `CallError::Tool`. That message still must not reach a span
+/// field or an INFO-or-louder line.
+#[test]
+fn tool_call_records_no_arguments_on_search_empty_result() {
+    let _guard = lock_metrics();
+    let server = MockServer::start();
+    let _mock = server.mock(|when, then| {
+        when.method(GET).path("/json/stations/search");
+        then.status(200).json_body(json!([]));
+    });
+    let base_url = format!("{}/json", server.base_url());
+
+    let cases = sentinel_arguments_by_tool();
+    assert_tool_coverage_is_complete(&cases);
+
+    run_leak_check(&base_url, &cases);
+}
+
+/// AC (mcp-core#40, lesson 9): `radio_play`'s uuid-lookup branch, driven
+/// separately from its baseline (url-based) case. When the uuid resolves to
+/// no station, `exec_radio_play` builds `"Station UUID not found: {uuid}"`
+/// -- a message that embeds the raw uuid -- so this is the sharpest leak
+/// check in the suite: a real, present-day message-construction site that
+/// quotes a caller value back.
+#[test]
+fn tool_call_records_no_arguments_on_play_by_uuid_not_found() {
+    let _guard = lock_metrics();
+    let server = MockServer::start();
+    let _mock = server.mock(|when, then| {
+        when.method(GET)
+            .path(format!("/json/stations/byuuid/{}", support::UUID_SENTINEL));
+        then.status(200).json_body(json!([]));
+    });
+    let base_url = format!("{}/json", server.base_url());
+
+    run_leak_check(&base_url, &[uuid_lookup_case()]);
+}
+
+/// AC (mcp-core#40, lesson 9): the uuid-lookup branch when the directory
+/// call itself fails, rather than returning an empty result.
+#[test]
+fn tool_call_records_no_arguments_on_play_by_uuid_upstream_failure() {
+    let _guard = lock_metrics();
+    let server = MockServer::start();
+    let _mock = server.mock(|when, then| {
+        when.method(GET)
+            .path(format!("/json/stations/byuuid/{}", support::UUID_SENTINEL));
+        then.status(503);
+    });
+    let base_url = format!("{}/json", server.base_url());
+
+    run_leak_check(&base_url, &[uuid_lookup_case()]);
 }
 
 /// AC (mcp-core#40): a Radio Browser directory fault increments

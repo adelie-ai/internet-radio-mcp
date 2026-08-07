@@ -3,20 +3,23 @@
 // Acceptance tests for the telemetry internet-radio-mcp inherits from
 // mcp-core's `run`: the stdio transport keeps stdout clean at any log
 // level, and every tool's caller-chosen content -- a station name, a search
-// query, or a stream URL -- stays off an INFO line (D10, the level
-// contract).
+// query, a station uuid, or a stream URL -- stays off an INFO line (D10,
+// the level contract).
 //
 // Table-driven over the server's full tool list (mcp-core#40, lesson 8): a
 // tool added without a case in `support::sentinel_arguments_by_tool` fails
-// here by name, not silently.
+// here by name, not silently. And driven through failure and empty
+// upstream responses as well as success (mcp-core#40, lesson 9): an error
+// type's `Display` is written to be helpful, which means quoting what
+// failed, so the failure branch is where a leak most naturally hides.
 //
 // Each test spawns the real binary. Only a real process proves what reaches
 // file descriptor 1 and what the installed subscriber really writes to
 // stderr; an in-process capturing layer only proves what a test told a
-// layer to do. `radio_search` needs the Radio Browser directory, which the
-// child process is pointed at a local mock server for via
-// `INTERNET_RADIO_MCP_RADIO_BROWSER_BASE` -- never the live directory
-// (mcp-core#40: no test may reach a live directory or stream).
+// layer to do. `radio_search` and `radio_play`'s uuid branch need the Radio
+// Browser directory, which the child process is pointed at a local mock
+// server for via `INTERNET_RADIO_MCP_RADIO_BROWSER_BASE` -- never the live
+// directory (mcp-core#40: no test may reach a live directory or stream).
 
 mod support;
 
@@ -26,7 +29,10 @@ use serde_json::{Value, json};
 use std::io::Write;
 use std::process::{Child, Command, Output, Stdio};
 
-use support::{SENTINEL, assert_tool_coverage_is_complete, sentinel_arguments_by_tool};
+use support::{
+    SENTINEL, UUID_SENTINEL, assert_tool_coverage_is_complete, sentinel_arguments_by_tool,
+    sentinels_present_in, uuid_lookup_case,
+};
 
 fn station_fixture() -> Value {
     json!([{
@@ -76,10 +82,10 @@ fn line_level(line: &str) -> Option<&str> {
         .filter(|token| matches!(*token, "ERROR" | "WARN" | "INFO" | "DEBUG" | "TRACE"))
 }
 
-/// Build the initialize/tool-calls/shutdown request sequence for every
-/// registered case, and the number of requests in it that carry an `id`
-/// (and so expect a reply).
-fn requests_for_all_tools(cases: &[(&'static str, Value)]) -> (Vec<Value>, usize) {
+/// Build the initialize/tool-calls/shutdown request sequence for `cases`,
+/// and the number of requests in it that carry an `id` (and so expect a
+/// reply).
+fn requests_for(cases: &[(&'static str, Value)]) -> (Vec<Value>, usize) {
     let mut requests = vec![json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {"protocolVersion": "2025-11-25", "capabilities": {}},
@@ -109,7 +115,7 @@ fn stdout_carries_only_jsonrpc_at_trace_level() {
 
     let cases = sentinel_arguments_by_tool();
     assert_tool_coverage_is_complete(&cases);
-    let (requests, expected_replies) = requests_for_all_tools(&cases);
+    let (requests, expected_replies) = requests_for(&cases);
 
     let output = run_requests("trace", &base_url, &requests);
     assert!(
@@ -144,10 +150,52 @@ fn stdout_carries_only_jsonrpc_at_trace_level() {
     );
 }
 
-/// AC (mcp-core#40, epic D10): no tool's sentinel-bearing content reaches an
-/// INFO-or-louder line, for any tool the server exposes.
+/// Drive `cases` against the real binary (Radio Browser pointed at
+/// `configure`'s mock) and assert no sentinel any case actually sent
+/// reaches an INFO-or-louder stderr line, while confirming (positive
+/// control) that each one is still reachable at DEBUG.
+fn assert_no_sentinel_at_info(cases: &[(&'static str, Value)], radio_browser_base: &str) {
+    let (requests, _) = requests_for(cases);
+    let output = run_requests("trace", radio_browser_base, &requests);
+    assert!(
+        output.status.success(),
+        "internet-radio-mcp must exit cleanly: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr is UTF-8");
+    let mut seen_at_debug: Vec<&str> = Vec::new();
+    for line in stderr.lines() {
+        for sentinel in [SENTINEL, UUID_SENTINEL] {
+            if !line.contains(sentinel) {
+                continue;
+            }
+            let level = line_level(line);
+            assert!(
+                matches!(level, Some("DEBUG") | Some("TRACE")),
+                "sentinel {sentinel:?} reached a line at level {level:?}, at or above INFO: \
+                 {line:?}"
+            );
+            if level == Some("DEBUG") && !seen_at_debug.contains(&sentinel) {
+                seen_at_debug.push(sentinel);
+            }
+        }
+    }
+
+    for sentinel in sentinels_present_in(cases) {
+        assert!(
+            seen_at_debug.contains(&sentinel),
+            "sentinel {sentinel:?} must still be reachable at DEBUG, or this test cannot tell a \
+             real fix from a line that was simply deleted; stderr was: {stderr:?}"
+        );
+    }
+}
+
+/// AC (mcp-core#40, epic D10, lesson 8): no tool's sentinel-bearing content
+/// reaches an INFO-or-louder line, for any tool the server exposes, on the
+/// success path.
 #[test]
-fn no_sentinel_reaches_an_info_line() {
+fn no_sentinel_reaches_an_info_line_on_search_success() {
     let server = MockServer::start();
     let _mock = server.mock(|when, then| {
         when.method(GET).path("/json/stations/search");
@@ -157,33 +205,54 @@ fn no_sentinel_reaches_an_info_line() {
 
     let cases = sentinel_arguments_by_tool();
     assert_tool_coverage_is_complete(&cases);
-    let (requests, _) = requests_for_all_tools(&cases);
+    assert_no_sentinel_at_info(&cases, &base_url);
+}
 
-    let output = run_requests("trace", &base_url, &requests);
-    assert!(
-        output.status.success(),
-        "internet-radio-mcp must exit cleanly: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+/// AC (mcp-core#40, lesson 9): the same property holds when the directory
+/// call fails outright, driven through the real, spawned process rather
+/// than only the in-process mock.
+#[test]
+fn no_sentinel_reaches_an_info_line_on_search_failure() {
+    let server = MockServer::start();
+    let _mock = server.mock(|when, then| {
+        when.method(GET).path("/json/stations/search");
+        then.status(503);
+    });
+    let base_url = format!("{}/json", server.base_url());
 
-    let stderr = String::from_utf8(output.stderr).expect("stderr is UTF-8");
-    let mut saw_sentinel_at_debug = false;
-    for line in stderr.lines() {
-        if !line.contains(SENTINEL) {
-            continue;
-        }
-        let level = line_level(line);
-        assert!(
-            matches!(level, Some("DEBUG") | Some("TRACE")),
-            "the sentinel reached a line at level {level:?}, at or above INFO: {line:?}"
-        );
-        if level == Some("DEBUG") {
-            saw_sentinel_at_debug = true;
-        }
-    }
-    assert!(
-        saw_sentinel_at_debug,
-        "the sentinel must still be reachable at DEBUG, or this test cannot tell a real fix \
-         from a line that was simply deleted; stderr was: {stderr:?}"
-    );
+    let cases = sentinel_arguments_by_tool();
+    assert_no_sentinel_at_info(&cases, &base_url);
+}
+
+/// AC (mcp-core#40, lesson 9): an empty search result builds
+/// `RadioError::NoStationsFound(query)`, whose message embeds the raw query
+/// -- the sharpest console-level leak check for `radio_search`.
+#[test]
+fn no_sentinel_reaches_an_info_line_on_search_empty_result() {
+    let server = MockServer::start();
+    let _mock = server.mock(|when, then| {
+        when.method(GET).path("/json/stations/search");
+        then.status(200).json_body(json!([]));
+    });
+    let base_url = format!("{}/json", server.base_url());
+
+    let cases = sentinel_arguments_by_tool();
+    assert_no_sentinel_at_info(&cases, &base_url);
+}
+
+/// AC (mcp-core#40, lesson 9): `radio_play`'s uuid-lookup branch. When the
+/// uuid resolves to no station, `exec_radio_play` builds
+/// `"Station UUID not found: {uuid}"`, embedding the raw uuid -- the
+/// sharpest console-level leak check for `radio_play`.
+#[test]
+fn no_sentinel_reaches_an_info_line_on_play_by_uuid_not_found() {
+    let server = MockServer::start();
+    let _mock = server.mock(|when, then| {
+        when.method(GET)
+            .path(format!("/json/stations/byuuid/{}", support::UUID_SENTINEL));
+        then.status(200).json_body(json!([]));
+    });
+    let base_url = format!("{}/json", server.base_url());
+
+    assert_no_sentinel_at_info(&[uuid_lookup_case()], &base_url);
 }

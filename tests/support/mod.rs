@@ -138,6 +138,12 @@ pub fn capture_dispatch_with_base(base_url: &str, messages: &[Value]) -> Recorde
 /// leak into a span field or an INFO-or-louder line.
 pub const SENTINEL: &str = "MARKER-radio-secret-9f3d1c2a";
 
+/// A second sentinel, shaped like a valid station UUID (36 hex-or-hyphen
+/// characters). [`SENTINEL`] cannot stand in for a UUID argument: `M`, `K`,
+/// `R`, `S`, `G` and `T` are not hex digits, so `validate_uuid` would reject
+/// it before it ever reached the uuid-lookup path this is meant to exercise.
+pub const UUID_SENTINEL: &str = "00000000-0000-4000-8000-c0ffeec0ffee";
+
 /// One argument set per tool the server exposes, each carrying [`SENTINEL`]
 /// somewhere a caller genuinely controls -- a search query or a station
 /// name, wherever that tool has one.
@@ -200,6 +206,100 @@ pub fn assert_tool_coverage_is_complete(cases: &[(&'static str, Value)]) {
         stale.is_empty(),
         "sentinel test case(s) {stale:?} do not correspond to a real tool -- fix or remove them"
     );
+}
+
+// ── driving failure and empty branches, not only success (lesson 9) ───────
+//
+// Covering every tool is not covering every path: an error type's `Display`
+// is written to be helpful, and helpful means quoting what failed, so the
+// failure branch is exactly where a station name or a stream URL is most
+// likely to end up embedded in a message that also reaches a log field. A
+// content test that only ever drives a mocked upstream that succeeds never
+// runs that code at all.
+
+/// `radio_play`'s uuid-lookup path, alongside its baseline (url-based) case
+/// in [`sentinel_arguments_by_tool`]. Not part of the completeness net --
+/// this exercises an additional branch within a tool the net already
+/// covers, not an additional tool -- so it lives in its own list rather
+/// than growing the per-tool table into a per-branch one.
+pub fn uuid_lookup_case() -> (&'static str, Value) {
+    ("radio_play", json!({"uuid": UUID_SENTINEL}))
+}
+
+/// Which of [`SENTINEL`] and [`UUID_SENTINEL`] actually appear in `cases`'
+/// arguments, so a positive-control check only demands what a scenario
+/// actually sent.
+pub fn sentinels_present_in(cases: &[(&'static str, Value)]) -> Vec<&'static str> {
+    let haystack: String = cases.iter().map(|(_, args)| args.to_string()).collect();
+    let mut present = Vec::new();
+    if haystack.contains(SENTINEL) {
+        present.push(SENTINEL);
+    }
+    if haystack.contains(UUID_SENTINEL) {
+        present.push(UUID_SENTINEL);
+    }
+    present
+}
+
+/// Assert that every tool named in `expected_tools` opened its own span
+/// (the positive half: this cannot pass simply because nothing was
+/// instrumented), and that neither sentinel reached a span field or an
+/// INFO-or-louder event, anywhere in `recorded`.
+pub fn assert_no_leak(recorded: &Recorded, expected_tools: &[&str]) {
+    for name in expected_tools {
+        let expected = expected_span_name(name);
+        assert!(
+            recorded.spans.iter().any(|s| s.name == expected),
+            "expected a {expected:?} span for tool {name:?}; spans were {:?}",
+            recorded.span_summary()
+        );
+    }
+
+    for span in &recorded.spans {
+        for (key, value) in &span.fields {
+            assert!(
+                !value.contains(SENTINEL) && !value.contains(UUID_SENTINEL),
+                "a sentinel leaked into span {:?} field {key:?}: {value:?}; all spans were {:?}",
+                span.name,
+                recorded.span_summary()
+            );
+        }
+    }
+
+    for event in &recorded.events {
+        // DEBUG/TRACE may legitimately carry tool arguments (D10) -- that is
+        // mcp-core's own dispatch layer, inherited rather than added here.
+        // Only INFO and louder are checked.
+        if event.level > Level::INFO {
+            continue;
+        }
+        for (key, value) in &event.fields {
+            assert!(
+                !value.contains(SENTINEL) && !value.contains(UUID_SENTINEL),
+                "a sentinel leaked into a {} line, field {key:?}: {value:?}; all events were {:?}",
+                event.level,
+                recorded.event_summary()
+            );
+        }
+    }
+}
+
+/// Assert each of `sentinels` is still reachable at DEBUG somewhere in
+/// `recorded` -- the positive control that keeps [`assert_no_leak`] from
+/// passing simply because a line was deleted rather than lowered.
+pub fn assert_reachable_at_debug(recorded: &Recorded, sentinels: &[&str]) {
+    for sentinel in sentinels {
+        let at_debug = recorded
+            .events
+            .iter()
+            .any(|e| e.level == Level::DEBUG && e.fields.values().any(|v| v.contains(sentinel)));
+        assert!(
+            at_debug,
+            "sentinel {sentinel:?} must still be reachable at DEBUG, or this test cannot tell a \
+             real fix from a line that was simply deleted; events were {:?}",
+            recorded.event_summary()
+        );
+    }
 }
 
 #[derive(Clone, Default)]
