@@ -30,7 +30,7 @@ use std::io::Write;
 use std::process::{Child, Command, Output, Stdio};
 
 use support::{
-    SENTINEL, UUID_SENTINEL, assert_tool_coverage_is_complete, sentinel_arguments_by_tool,
+    ALL_SENTINELS, assert_tool_coverage_is_complete, sentinel_arguments_by_tool,
     sentinels_present_in, uuid_lookup_case,
 };
 
@@ -166,7 +166,7 @@ fn assert_no_sentinel_at_info(cases: &[(&'static str, Value)], radio_browser_bas
     let stderr = String::from_utf8(output.stderr).expect("stderr is UTF-8");
     let mut seen_at_debug: Vec<&str> = Vec::new();
     for line in stderr.lines() {
-        for sentinel in [SENTINEL, UUID_SENTINEL] {
+        for sentinel in ALL_SENTINELS.iter().copied() {
             if !line.contains(sentinel) {
                 continue;
             }

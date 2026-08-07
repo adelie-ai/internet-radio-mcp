@@ -133,20 +133,38 @@ pub fn capture_dispatch_with_base(base_url: &str, messages: &[Value]) -> Recorde
 // one list, shared by every content test in this crate, and a completeness
 // check that fails the moment a tool has no entry.
 
-/// The value every content test in this crate hunts for: the shape of a
-/// caller-chosen station name, search query, or stream URL, which must never
-/// leak into a span field or an INFO-or-louder line.
+/// Coverage has three dimensions: every tool, every path, and every
+/// content-bearing argument within each call (mcp-core#40, lesson 13). A
+/// tool with three arguments and a sentinel in only one of them is
+/// one-third covered, and nothing says so unless each argument gets its own
+/// value -- a shared sentinel across two fields cannot name which one
+/// leaked when they leak together as one opaque blob field (the common
+/// shape of a leak: `#[instrument]` without `skip_all` capturing the whole
+/// arguments map as a single `args` field).
+///
+/// `radio_search`'s query.
 pub const SENTINEL: &str = "MARKER-radio-secret-9f3d1c2a";
 
-/// A second sentinel, shaped like a valid station UUID (36 hex-or-hyphen
-/// characters). [`SENTINEL`] cannot stand in for a UUID argument: `M`, `K`,
-/// `R`, `S`, `G` and `T` are not hex digits, so `validate_uuid` would reject
-/// it before it ever reached the uuid-lookup path this is meant to exercise.
+/// `radio_play`'s display name.
+pub const NAME_SENTINEL: &str = "MARKER-radio-name-7b2e4f1d";
+
+/// `radio_play`'s stream url, embedded as a path segment after a scheme
+/// `validate_stream_url` rejects outright (see [`sentinel_arguments_by_tool`]).
+pub const URL_SENTINEL: &str = "MARKER-radio-url-3c9a8e60";
+
+/// `radio_play`'s station uuid, shaped like a valid one (36 hex-or-hyphen
+/// characters). [`SENTINEL`] and friends cannot stand in for a uuid
+/// argument: their letters are not all hex digits, so `validate_uuid` would
+/// reject one before it ever reached the uuid-lookup path this is meant to
+/// exercise.
 pub const UUID_SENTINEL: &str = "00000000-0000-4000-8000-c0ffeec0ffee";
 
-/// One argument set per tool the server exposes, each carrying [`SENTINEL`]
-/// somewhere a caller genuinely controls -- a search query or a station
-/// name, wherever that tool has one.
+/// Every sentinel a content test in this crate might hunt for, in one place
+/// so a new content-bearing argument gets its own entry here too.
+pub const ALL_SENTINELS: &[&str] = &[SENTINEL, NAME_SENTINEL, URL_SENTINEL, UUID_SENTINEL];
+
+/// One argument set per tool the server exposes, each carrying a distinct
+/// sentinel in every content-bearing argument that tool has.
 ///
 /// `radio_play`'s url uses a scheme `validate_stream_url` rejects outright,
 /// so the call is safe to drive against the live spawned binary too, not
@@ -159,7 +177,10 @@ pub fn sentinel_arguments_by_tool() -> Vec<(&'static str, Value)> {
         ("radio_search", json!({"query": SENTINEL})),
         (
             "radio_play",
-            json!({"url": "ftp://blocked.example.com/stream", "name": SENTINEL}),
+            json!({
+                "url": format!("ftp://blocked.example.com/{URL_SENTINEL}"),
+                "name": NAME_SENTINEL,
+            }),
         ),
         ("radio_stop", json!({})),
         ("radio_now_playing", json!({})),
@@ -226,25 +247,22 @@ pub fn uuid_lookup_case() -> (&'static str, Value) {
     ("radio_play", json!({"uuid": UUID_SENTINEL}))
 }
 
-/// Which of [`SENTINEL`] and [`UUID_SENTINEL`] actually appear in `cases`'
-/// arguments, so a positive-control check only demands what a scenario
-/// actually sent.
+/// Which of [`ALL_SENTINELS`] actually appear in `cases`' arguments, so a
+/// positive-control check only demands what a scenario actually sent.
 pub fn sentinels_present_in(cases: &[(&'static str, Value)]) -> Vec<&'static str> {
     let haystack: String = cases.iter().map(|(_, args)| args.to_string()).collect();
-    let mut present = Vec::new();
-    if haystack.contains(SENTINEL) {
-        present.push(SENTINEL);
-    }
-    if haystack.contains(UUID_SENTINEL) {
-        present.push(UUID_SENTINEL);
-    }
-    present
+    ALL_SENTINELS
+        .iter()
+        .copied()
+        .filter(|sentinel| haystack.contains(sentinel))
+        .collect()
 }
 
 /// Assert that every tool named in `expected_tools` opened its own span
 /// (the positive half: this cannot pass simply because nothing was
-/// instrumented), and that neither sentinel reached a span field or an
-/// INFO-or-louder event, anywhere in `recorded`.
+/// instrumented), and that no sentinel in [`ALL_SENTINELS`] reached a span
+/// field or an INFO-or-louder event, anywhere in `recorded`. Each argument's
+/// own distinct sentinel means a failure names which one leaked.
 pub fn assert_no_leak(recorded: &Recorded, expected_tools: &[&str]) {
     for name in expected_tools {
         let expected = expected_span_name(name);
@@ -257,12 +275,15 @@ pub fn assert_no_leak(recorded: &Recorded, expected_tools: &[&str]) {
 
     for span in &recorded.spans {
         for (key, value) in &span.fields {
-            assert!(
-                !value.contains(SENTINEL) && !value.contains(UUID_SENTINEL),
-                "a sentinel leaked into span {:?} field {key:?}: {value:?}; all spans were {:?}",
-                span.name,
-                recorded.span_summary()
-            );
+            for sentinel in ALL_SENTINELS {
+                assert!(
+                    !value.contains(sentinel),
+                    "sentinel {sentinel:?} leaked into span {:?} field {key:?}: {value:?}; all \
+                     spans were {:?}",
+                    span.name,
+                    recorded.span_summary()
+                );
+            }
         }
     }
 
@@ -274,12 +295,15 @@ pub fn assert_no_leak(recorded: &Recorded, expected_tools: &[&str]) {
             continue;
         }
         for (key, value) in &event.fields {
-            assert!(
-                !value.contains(SENTINEL) && !value.contains(UUID_SENTINEL),
-                "a sentinel leaked into a {} line, field {key:?}: {value:?}; all events were {:?}",
-                event.level,
-                recorded.event_summary()
-            );
+            for sentinel in ALL_SENTINELS {
+                assert!(
+                    !value.contains(sentinel),
+                    "sentinel {sentinel:?} leaked into a {} line, field {key:?}: {value:?}; all \
+                     events were {:?}",
+                    event.level,
+                    recorded.event_summary()
+                );
+            }
         }
     }
 }
